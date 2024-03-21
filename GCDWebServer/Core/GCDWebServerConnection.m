@@ -140,10 +140,11 @@ NS_ASSUME_NONNULL_END
   if (preflightResponse) {
     [self _finishProcessingRequest:preflightResponse];
   } else {
-    [self processRequest:_request
-              completion:^(GCDWebServerResponse* processResponse) {
-                [self _finishProcessingRequest:processResponse];
-              }];
+    GWS_WEAK_SELF;
+    [self processRequest:_request completion:^(GCDWebServerResponse* processResponse) {
+      GWS_STRONG_SELF;
+      [self _finishProcessingRequest:processResponse];
+    }];
   }
 }
 
@@ -195,7 +196,9 @@ NS_ASSUME_NONNULL_END
     [_response.additionalHeaders enumerateKeysAndObjectsUsingBlock:^(id key, id obj, BOOL* stop) {
       CFHTTPMessageSetHeaderFieldValue(self->_responseMessage, (__bridge CFStringRef)key, (__bridge CFStringRef)obj);
     }];
+    GWS_WEAK_SELF;
     [self writeHeadersWithCompletionBlock:^(BOOL success) {
+      GWS_STRONG_SELF;
       if (success) {
         if (hasBody) {
           [self writeBodyWithCompletionBlock:^(BOOL successInner) {
@@ -232,16 +235,17 @@ NS_ASSUME_NONNULL_END
   }
 
   if (length) {
-    [self readBodyWithRemainingLength:length
-                      completionBlock:^(BOOL success) {
-                        NSError* localError = nil;
-                        if ([self->_request performClose:&localError]) {
-                          [self _startProcessingRequest];
-                        } else {
-                          GWS_LOG_ERROR(@"Failed closing request body for socket %i: %@", self->_socket, error);
-                          [self abortRequest:self->_request withStatusCode:kGCDWebServerHTTPStatusCode_InternalServerError];
-                        }
-                      }];
+    GWS_WEAK_SELF;
+    [self readBodyWithRemainingLength:length completionBlock:^(BOOL success) {
+      GWS_STRONG_SELF;
+      NSError* localError = nil;
+      if ([self->_request performClose:&localError]) {
+        [self _startProcessingRequest];
+      } else {
+        GWS_LOG_ERROR(@"Failed closing request body for socket %i: %@", self->_socket, error);
+        [self abortRequest:self->_request withStatusCode:kGCDWebServerHTTPStatusCode_InternalServerError];
+      }
+    }];
   } else {
     if ([_request performClose:&error]) {
       [self _startProcessingRequest];
@@ -261,23 +265,26 @@ NS_ASSUME_NONNULL_END
   }
 
   NSMutableData* chunkData = [[NSMutableData alloc] initWithData:initialData];
-  [self readNextBodyChunk:chunkData
-          completionBlock:^(BOOL success) {
-            NSError* localError = nil;
-            if ([self->_request performClose:&localError]) {
-              [self _startProcessingRequest];
-            } else {
-              GWS_LOG_ERROR(@"Failed closing request body for socket %i: %@", self->_socket, error);
-              [self abortRequest:self->_request withStatusCode:kGCDWebServerHTTPStatusCode_InternalServerError];
-            }
-          }];
+  GWS_WEAK_SELF;
+  [self readNextBodyChunk:chunkData completionBlock:^(BOOL success) {
+    GWS_STRONG_SELF;
+    NSError* localError = nil;
+    if ([self->_request performClose:&localError]) {
+      [self _startProcessingRequest];
+    } else {
+      GWS_LOG_ERROR(@"Failed closing request body for socket %i: %@", self->_socket, error);
+      [self abortRequest:self->_request withStatusCode:kGCDWebServerHTTPStatusCode_InternalServerError];
+    }
+  }];
 }
 
 - (void)_readRequestHeaders {
   _requestMessage = CFHTTPMessageCreateEmpty(kCFAllocatorDefault, true);
   NSMutableData* headersData = [[NSMutableData alloc] initWithCapacity:kHeadersReadCapacity];
+  GWS_WEAK_SELF;
   [self readHeaders:headersData
       withCompletionBlock:^(NSData* extraData) {
+        GWS_STRONG_SELF;
         if (extraData) {
           NSString* requestMethod = CFBridgingRelease(CFHTTPMessageCopyRequestMethod(self->_requestMessage));  // Method verbs are case-sensitive and uppercase
           if (self->_server.shouldAutomaticallyMapHEADToGET && [requestMethod isEqualToString:@"HEAD"]) {
@@ -313,8 +320,10 @@ NS_ASSUME_NONNULL_END
                   NSString* expectHeader = [requestHeaders objectForKey:@"Expect"];
                   if (expectHeader) {
                     if ([expectHeader caseInsensitiveCompare:@"100-continue"] == NSOrderedSame) {  // TODO: Actually validate request before continuing
+                      GWS_WEAK_SELF;
                       [self writeData:_continueData
                           withCompletionBlock:^(BOOL success) {
+                            GWS_STRONG_SELF;
                             if (success) {
                               if (self->_request.usesChunkedTransferEncoding) {
                                 [self _readChunkedBodyWithInitialData:extraData];
@@ -413,7 +422,9 @@ NS_ASSUME_NONNULL_END
 @implementation GCDWebServerConnection (Read)
 
 - (void)readData:(NSMutableData*)data withLength:(NSUInteger)length completionBlock:(ReadDataCompletionBlock)block {
+  GWS_WEAK_SELF;
   dispatch_read(_socket, length, dispatch_get_global_queue(_server.dispatchQueuePriority, 0), ^(dispatch_data_t buffer, int error) {
+    GWS_STRONG_SELF;
     @autoreleasepool {
       if (error == 0) {
         size_t size = dispatch_data_get_size(buffer);
@@ -443,9 +454,11 @@ NS_ASSUME_NONNULL_END
 
 - (void)readHeaders:(NSMutableData*)headersData withCompletionBlock:(ReadHeadersCompletionBlock)block {
   GWS_DCHECK(_requestMessage);
+  GWS_WEAK_SELF;
   [self readData:headersData
            withLength:NSUIntegerMax
       completionBlock:^(BOOL success) {
+        GWS_STRONG_SELF;
         if (success) {
           NSRange range = [headersData rangeOfData:_CRLFCRLFData options:0 range:NSMakeRange(0, headersData.length)];
           if (range.location == NSNotFound) {
@@ -473,9 +486,11 @@ NS_ASSUME_NONNULL_END
 - (void)readBodyWithRemainingLength:(NSUInteger)length completionBlock:(ReadBodyCompletionBlock)block {
   GWS_DCHECK([_request hasBody] && ![_request usesChunkedTransferEncoding]);
   NSMutableData* bodyData = [[NSMutableData alloc] initWithCapacity:kBodyReadCapacity];
+  GWS_WEAK_SELF;
   [self readData:bodyData
            withLength:length
       completionBlock:^(BOOL success) {
+        GWS_STRONG_SELF;
         if (success) {
           if (bodyData.length <= length) {
             NSError* error = nil;
@@ -554,9 +569,11 @@ static inline NSUInteger _ScanHexNumber(const void* bytes, NSUInteger size) {
     }
   }
 
+  GWS_WEAK_SELF;
   [self readData:chunkData
            withLength:NSUIntegerMax
       completionBlock:^(BOOL success) {
+        GWS_STRONG_SELF;
         if (success) {
           [self readNextBodyChunk:chunkData completionBlock:block];
         } else {
@@ -573,7 +590,9 @@ static inline NSUInteger _ScanHexNumber(const void* bytes, NSUInteger size) {
   dispatch_data_t buffer = dispatch_data_create(data.bytes, data.length, dispatch_get_global_queue(_server.dispatchQueuePriority, 0), ^{
     [data self];  // Keeps ARC from releasing data too early
   });
+  GWS_WEAK_SELF;
   dispatch_write(_socket, buffer, dispatch_get_global_queue(_server.dispatchQueuePriority, 0), ^(dispatch_data_t remainingData, int error) {
+    GWS_STRONG_SELF;
     @autoreleasepool {
       if (error == 0) {
         GWS_DCHECK(remainingData == NULL);
@@ -599,7 +618,9 @@ static inline NSUInteger _ScanHexNumber(const void* bytes, NSUInteger size) {
 
 - (void)writeBodyWithCompletionBlock:(WriteBodyCompletionBlock)block {
   GWS_DCHECK([_response hasBody]);
+  GWS_WEAK_SELF;
   [_response performReadDataWithCompletion:^(NSData* data, NSError* error) {
+    GWS_STRONG_SELF;
     if (data) {
       if (data.length) {
         if (self->_response.usesChunkedTransferEncoding) {
@@ -622,8 +643,10 @@ static inline NSUInteger _ScanHexNumber(const void* bytes, NSUInteger size) {
           *ptr = '\n';
           data = chunk;
         }
+        GWS_WEAK_SELF;
         [self writeData:data
             withCompletionBlock:^(BOOL success) {
+              GWS_STRONG_SELF;
               if (success) {
                 [self writeBodyWithCompletionBlock:block];
               } else {

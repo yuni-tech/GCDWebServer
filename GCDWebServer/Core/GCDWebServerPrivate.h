@@ -101,6 +101,9 @@ typedef NS_ENUM(int, GCDWebServerLoggingLevel) {
 extern GCDWebServerLoggingLevel GCDWebServerLogLevel;
 extern void GCDWebServerLogMessage(GCDWebServerLoggingLevel level, NSString* _Nonnull format, ...) NS_FORMAT_FUNCTION(2, 3);
 
+#define GWS_WEAK_SELF __weak typeof(self) __weak_self = self
+#define GWS_STRONG_SELF __strong typeof(self) self = __weak_self
+
 #if DEBUG
 #define GWS_LOG_DEBUG(...)                                                                                                             \
   do {                                                                                                                                 \
