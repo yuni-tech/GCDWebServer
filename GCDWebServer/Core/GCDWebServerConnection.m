@@ -422,9 +422,7 @@ NS_ASSUME_NONNULL_END
 @implementation GCDWebServerConnection (Read)
 
 - (void)readData:(NSMutableData*)data withLength:(NSUInteger)length completionBlock:(ReadDataCompletionBlock)block {
-  GWS_WEAK_SELF;
   dispatch_read(_socket, length, dispatch_get_global_queue(_server.dispatchQueuePriority, 0), ^(dispatch_data_t buffer, int error) {
-    GWS_STRONG_SELF;
     @autoreleasepool {
       if (error == 0) {
         size_t size = dispatch_data_get_size(buffer);
@@ -590,9 +588,7 @@ static inline NSUInteger _ScanHexNumber(const void* bytes, NSUInteger size) {
   dispatch_data_t buffer = dispatch_data_create(data.bytes, data.length, dispatch_get_global_queue(_server.dispatchQueuePriority, 0), ^{
     [data self];  // Keeps ARC from releasing data too early
   });
-  GWS_WEAK_SELF;
   dispatch_write(_socket, buffer, dispatch_get_global_queue(_server.dispatchQueuePriority, 0), ^(dispatch_data_t remainingData, int error) {
-    GWS_STRONG_SELF;
     @autoreleasepool {
       if (error == 0) {
         GWS_DCHECK(remainingData == NULL);
